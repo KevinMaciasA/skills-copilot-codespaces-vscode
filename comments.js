@@ -1,28 +1,52 @@
-// Create a web server
-// 1. Create a web server
-// 2. Create a request handler
-// 3. Start the server with the handler
-// 4. Test the server
+// Create web server
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const cors = require('cors');
 
-// 1. Create a web server
-const http = require('http');
-const port = 3000;
-const hostname = 'localhost';
+const app = express();
+app.use(bodyParser.json());
+app.use(cors());
 
-// 2. Create a request handler
-const requestHandler = (req, res) => {
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/json');
-  res.end('Hello World');
+const commentsByPostId = {};
+
+const handleEvent = (type, data) => {
+  if (type === 'CommentCreated') {
+    const { id, content, postId, status } = data;
+    const comments = commentsByPostId[postId] || [];
+    comments.push({ id, content, status });
+    commentsByPostId[postId] = comments;
+  }
+
+  if (type === 'CommentUpdated') {
+    const { id, content, postId, status } = data;
+    const comments = commentsByPostId[postId];
+    const comment = comments.find((comment) => comment.id === id);
+    comment.status = status;
+    comment.content = content;
+  }
 };
 
-// 3. Start the server with the handler
-const server = http.createServer(requestHandler);
-
-server.listen(port, hostname, () => {
-  console.log(`Server running at http://${hostname}:${port}/`);
+app.get('/posts/:id/comments', (req, res) => {
+  res.send(commentsByPostId[req.params.id] || []);
 });
 
-// 4. Test the server
-// Open http://localhost:3000/ in the browser
-// Hello World should be displayed in the browser
+// Receive events from event-bus
+app.post('/events', (req, res) => {
+  const { type, data } = req.body;
+  handleEvent(type, data);
+  res.send({});
+});
+
+app.listen(4001, async () => {
+  console.log('Listening on 4001');
+
+  // Get all events from event-bus
+  const res = await axios.get('http://event-bus-srv:4005/events');
+
+  // Repopulate commentsByPostId with events
+  for (let event of res.data) {
+    console.log('Processing event: ', event.type);
+    handleEvent(event.type, event.data);
+  }
+});
